@@ -1,0 +1,41 @@
+name: Monitoring
+
+# See discovery.yml for why this defaults to a self-hosted runner — it needs
+# access to the same persistent data/app.db the live app reads from.
+
+on:
+  schedule:
+    - cron: "0 7 * * *" # daily at 07:00 UTC
+  workflow_dispatch: {}
+
+jobs:
+  monitor:
+    runs-on: self-hosted
+    defaults:
+      run:
+        working-directory: apps/scraper
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Install Playwright browser
+        run: playwright install chromium --with-deps
+
+      - name: Run monitoring
+        env:
+          DATABASE_PATH: ${{ vars.DATABASE_PATH }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          LLM_COMPAT_API_KEY: ${{ secrets.LLM_COMPAT_API_KEY }}
+          LLM_COMPAT_BASE_URL: ${{ vars.LLM_COMPAT_BASE_URL }}
+          LLM_COMPAT_MODEL: ${{ vars.LLM_COMPAT_MODEL }}
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+          SERPAPI_API_KEY: ${{ secrets.SERPAPI_API_KEY }}
+        run: python -m app.monitoring.run

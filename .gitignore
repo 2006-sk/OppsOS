@@ -1,0 +1,37 @@
+# Node
+node_modules/
+apps/web/.next/
+apps/web/out/
+apps/web/next-env.d.ts
+apps/web/*.tsbuildinfo
+
+# Python
+__pycache__/
+*.pyc
+apps/scraper/.venv/
+apps/scraper/venv/
+apps/scraper/.pytest_cache/
+apps/scraper/*.egg-info/
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+# apps/web/.env holds only a relative DATABASE_URL path, no secrets — commit
+# it so a fresh clone can run `npx prisma migrate dev` without extra setup.
+!apps/web/.env
+
+# Database
+data/*.db
+data/*.db-journal
+data/*.db-wal
+data/*.db-shm
+
+# Playwright
+apps/scraper/**/test-results/
+apps/scraper/**/playwright-report/
+apps/scraper/.discovery_state.json
+
+# Misc
+.DS_Store
+*.log

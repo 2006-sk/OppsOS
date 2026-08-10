@@ -1,0 +1,60 @@
+# Discovery search queries, grouped per spec section 10. The pipeline
+# rotates through a few queries per run rather than running everything every
+# time (see discovery/pipeline.py pick_rotating_queries).
+
+research:
+  - "student research competition India"
+  - "summer research program high school India"
+  - "research program high school India"
+  - "high school student research fellowship"
+
+olympiads:
+  - "international mathematics competition students"
+  - "high school science competition"
+  - "high school AI competition"
+  - "high school computer science competition"
+  - "engineering competition secondary school"
+
+entrepreneurship:
+  - "teen entrepreneurship competition"
+  - "high school startup competition"
+  - "student innovation challenge"
+
+environment:
+  - "environment competition students"
+  - "climate competition teenagers"
+
+essays:
+  - "international essay competition school students"
+
+economics:
+  - "economics competition high school"
+  - "finance competition high school students"
+
+technology:
+  - "high school AI competition"
+  - "high school computer science competition"
+
+summer_programs:
+  - "summer research program grade 10"
+  - "international competition high school students"
+
+fellowships:
+  - "student fellowship India"
+
+social_impact:
+  - "student social impact competition"
+  - "high school policy competition"
+
+general:
+  - "high school competition India 2026"
+  - "grade 10 competition India"
+  - "global youth competition"
+
+winner_mining:
+  - "ISEF finalist other competitions"
+  - "Earth Prize finalist awards"
+  - "high school student international competition winner"
+  - "grade 10 student innovation finalist"
+  - "student won science competition"
+  - "secondary school student awards research"

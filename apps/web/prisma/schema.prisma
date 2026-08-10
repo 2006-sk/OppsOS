@@ -1,0 +1,314 @@
+// Opportunity OS — Prisma schema
+//
+// NOTE on scope deviation from the original spec: this MVP uses SQLite
+// (shared by this Next.js app and the Python scraper service) instead of
+// Postgres/Supabase, so it runs with zero external accounts. Consequences:
+//   - No native enum type on SQLite -> enum-like fields are `String` with
+//     the allowed values documented in a comment above each field. Validate
+//     them at the application boundary (see src/lib/enums.ts).
+//   - No native array/jsonb type -> array/object fields use Prisma's `Json`
+//     scalar (stored as TEXT under the hood).
+//   - No Row Level Security -> every query in src/lib/db/*.ts that touches
+//     a user-scoped table MUST filter by the authenticated user's id
+//     server-side. There is no DB-level backstop.
+//   - IDs use cuid() instead of Postgres uuid() — both are collision-safe
+//     unique strings, cuid() is the Prisma-recommended default for SQLite.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Auth + profile
+// ---------------------------------------------------------------------------
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  // The first account created is auto-promoted to admin (see register route) —
+  // fine for a single-student MVP; promote additional admins directly via
+  // Prisma Studio / SQL until a real admin-management UI is built.
+  isAdmin      Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  profile Profile?
+  states  UserOpportunityState[]
+  scores  OpportunityScore[]
+
+  @@map("users")
+}
+
+model Profile {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name    String
+  grade   Int
+  country String
+  state   String?
+  city    String?
+  school  String?
+
+  // string[] stored as Json, e.g. ["computer_science","ai"]
+  interests           Json
+  // string[] stored as Json, e.g. ["olympiad","hackathon"]
+  preferredCategories Json
+
+  // allowed: "individual" | "team" | "either"
+  teamPreference String
+  hoursPerWeek   Int
+  budgetMin      Int?
+  budgetMax      Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("profiles")
+}
+
+// ---------------------------------------------------------------------------
+// Opportunities
+// ---------------------------------------------------------------------------
+
+model Opportunity {
+  id           String @id @default(cuid())
+  slug         String @unique
+  name         String
+  organization String
+  description  String
+
+  // allowed: "research" | "olympiad" | "essay" | "entrepreneurship" |
+  // "innovation" | "environment" | "fellowship" | "summer_program" |
+  // "internship" | "hackathon" | "scholarship" | "other"
+  category    String
+  subcategory String?
+
+  officialUrl    String
+  applicationUrl String?
+
+  // allowed: "global" | "country_specific" | "regional"
+  countryScope      String
+  // string[] of ISO country names/codes, null = eligibility unclear
+  eligibleCountries Json?
+
+  minGrade Int?
+  maxGrade Int?
+  minAge   Int?
+  maxAge   Int?
+
+  individualAllowed Boolean @default(true)
+  teamAllowed       Boolean @default(false)
+  teamSizeMin       Int?
+  teamSizeMax       Int?
+
+  // null = unknown/not stated; 0 = confirmed free
+  applicationFee   Float?
+  feeCurrency      String?
+  prizeDescription String?
+
+  deadline DateTime?
+  opensAt  DateTime?
+  closesAt DateTime?
+
+  // allowed: "open" | "upcoming" | "closed" | "results_announced" | "unknown"
+  status String @default("unknown")
+
+  // Scraper-discovered opportunities are created unpublished and only enter
+  // the student-facing feed once an admin accepts the matching
+  // DiscoveryCandidate (see /admin/review). Seed/manual entries default true.
+  published Boolean @default(true)
+
+  // internal 0-100 numeric scores; UI must map these to labels, never show raw numbers
+  difficultyScore  Int?
+  valueScore       Int?
+  legitimacyScore  Int?
+  // confidence (0-100) in the extracted facts overall
+  sourceConfidence Int?
+
+  // allowed: "seed" | "tavily" | "serpapi" | "winner_mining" | "manual"
+  discoverySource String?
+  discoveredAt    DateTime  @default(now())
+  lastVerifiedAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sources             OpportunitySource[]
+  requirements        OpportunityRequirement?
+  pastWinners         PastWinner[]
+  userStates          UserOpportunityState[]
+  scores              OpportunityScore[]
+  changeHistory       OpportunityChangeHistory[]
+  discoveryCandidates DiscoveryCandidate[]
+
+  @@index([category])
+  @@index([deadline])
+  @@index([status])
+  @@index([discoveredAt])
+  @@map("opportunities")
+}
+
+model OpportunitySource {
+  id            String      @id @default(cuid())
+  opportunityId String
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+
+  url         String
+  // allowed: "official" | "news" | "directory" | "winner_profile" | "other"
+  sourceType  String
+  title       String?
+  retrievedAt DateTime
+  cleanedText String?
+  contentHash String?
+  isOfficial  Boolean  @default(false)
+  metadata    Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([opportunityId])
+  @@map("opportunity_sources")
+}
+
+model OpportunityRequirement {
+  id            String      @id @default(cuid())
+  opportunityId String      @unique
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+
+  requirements           Json?
+  judgingCriteria        Json?
+  submissionRequirements Json?
+  stages                 Json?
+
+  updatedAt DateTime @updatedAt
+
+  @@map("opportunity_requirements")
+}
+
+model PastWinner {
+  id            String      @id @default(cuid())
+  opportunityId String
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+
+  year         Int?
+  winnerName   String?
+  projectTitle String?
+  description  String?
+  sourceUrl    String?
+
+  createdAt DateTime @default(now())
+
+  @@index([opportunityId])
+  @@map("past_winners")
+}
+
+// ---------------------------------------------------------------------------
+// Per-user state (RLS substitute: always filter by userId in queries)
+// ---------------------------------------------------------------------------
+
+model UserOpportunityState {
+  id            String      @id @default(cuid())
+  userId        String
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  opportunityId String
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+
+  saved  Boolean @default(false)
+  // allowed: "interested" | "doing" | "completed" | "skipped"
+  status String  @default("interested")
+  notes  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, opportunityId])
+  @@index([userId])
+  @@map("user_opportunity_state")
+}
+
+model OpportunityScore {
+  id            String      @id @default(cuid())
+  opportunityId String
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  fitScore       Int
+  // allowed: "do_it" | "consider" | "skip"
+  recommendation String
+  explanation    String?
+  calculatedAt   DateTime @default(now())
+
+  @@unique([opportunityId, userId])
+  @@index([userId])
+  @@map("opportunity_scores")
+}
+
+// ---------------------------------------------------------------------------
+// Discovery + monitoring bookkeeping (written by the Python scraper service)
+// ---------------------------------------------------------------------------
+
+model DiscoveryCandidate {
+  id                   String  @id @default(cuid())
+  url                  String  @unique
+  title                String?
+  snippet              String?
+  domain               String?
+  discoveredByQuery    String?
+  discoveryProvider    String?
+  extractedName        String?
+  legitimacyConfidence Int?
+
+  // allowed: "pending" | "accepted" | "rejected" | "duplicate"
+  state  String  @default("pending")
+  reason String?
+
+  opportunityId String?
+  opportunity   Opportunity? @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+
+  createdAt  DateTime  @default(now())
+  reviewedAt DateTime?
+
+  @@index([state])
+  @@map("discovery_candidates")
+}
+
+model ScrapeRun {
+  id              String    @id @default(cuid())
+  // allowed: "discovery" | "monitoring"
+  scraperType     String
+  source          String?
+  startedAt       DateTime  @default(now())
+  completedAt     DateTime?
+  // allowed: "running" | "success" | "partial" | "failed"
+  status          String    @default("running")
+  discoveredCount Int       @default(0)
+  updatedCount    Int       @default(0)
+  errorCount      Int       @default(0)
+  logs            Json?
+
+  @@index([scraperType])
+  @@map("scrape_runs")
+}
+
+model OpportunityChangeHistory {
+  id            String      @id @default(cuid())
+  opportunityId String
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+
+  field       String
+  oldValue    String?
+  newValue    String?
+  detectedAt  DateTime @default(now())
+  scrapeRunId String?
+
+  @@index([opportunityId])
+  @@map("opportunity_change_history")
+}
