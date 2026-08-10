@@ -48,6 +48,11 @@ const SAVED_OPTIONS = [
   { value: "not_saved", label: "Not saved" },
 ];
 
+const ELIGIBILITY_OPTIONS = [
+  { value: "all", label: "Include unverified eligibility" },
+  { value: "true", label: "Confirmed eligible only" },
+];
+
 export function OpportunityFilters() {
   const router = useRouter();
   const pathname = usePathname();
@@ -160,6 +165,22 @@ export function OpportunityFilters() {
           </SelectTrigger>
           <SelectContent>
             {SAVED_OPTIONS.map((o) => (
+              <SelectItem key={o.value} value={o.value}>
+                {o.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select
+          defaultValue={searchParams.get("eligibleOnly") ?? "all"}
+          onValueChange={(v) => setParam("eligibleOnly", v)}
+        >
+          <SelectTrigger className="w-[220px]">
+            <SelectValue placeholder="Eligibility" />
+          </SelectTrigger>
+          <SelectContent>
+            {ELIGIBILITY_OPTIONS.map((o) => (
               <SelectItem key={o.value} value={o.value}>
                 {o.label}
               </SelectItem>

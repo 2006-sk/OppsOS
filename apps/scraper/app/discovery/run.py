@@ -14,15 +14,23 @@ logger = get_logger("discovery.run")
 
 
 async def run_discovery(
-    query_count: int = 5, winner_mining_count: int = 1, max_results_per_query: int = 8
+    query_count: int = 5,
+    winner_mining_count: int = 1,
+    max_results_per_query: int = 8,
+    *,
+    query_group: str | None = None,
 ) -> dict:
+    """`query_group=None` rotates the default query pool — identical
+    behavior to before dedicated lanes existed. Pass e.g. "undergraduate_usa"
+    to run only that lane (see discovery-undergrad.yml), with its own
+    independent rotation cursor."""
     run_id = repo.start_scrape_run("discovery")
     provider = get_search_provider()
     discovered = duplicate = rejected = errors = 0
     logs: list[dict] = []
 
-    queries = pick_rotating_queries(query_count)
-    log_event(logger, "discovery_run_started", run_id=run_id, query_count=len(queries))
+    queries = pick_rotating_queries(query_count, group=query_group)
+    log_event(logger, "discovery_run_started", run_id=run_id, query_count=len(queries), query_group=query_group)
 
     for group, query in queries:
         try:
@@ -91,11 +99,14 @@ async def run_discovery(
 def main() -> None:
     # Env overrides let CI dispatch a small verification run without a code
     # change (e.g. DISCOVERY_QUERY_COUNT=1 DISCOVERY_WINNER_MINING_COUNT=0).
+    # DISCOVERY_QUERY_GROUP selects a dedicated lane (e.g. "undergraduate_usa")
+    # instead of the default rotation — see discovery-undergrad.yml.
     try:
         result = asyncio.run(
             run_discovery(
                 query_count=int(os.environ.get("DISCOVERY_QUERY_COUNT", "5")),
                 winner_mining_count=int(os.environ.get("DISCOVERY_WINNER_MINING_COUNT", "1")),
+                query_group=os.environ.get("DISCOVERY_QUERY_GROUP") or None,
             )
         )
         print(result)

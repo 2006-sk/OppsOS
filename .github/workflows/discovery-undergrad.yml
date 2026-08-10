@@ -1,0 +1,58 @@
+name: Discovery (Undergraduate)
+
+# Dedicated discovery lane for undergraduate/college students — runs the
+# "undergraduate_usa" query group only (config/queries.yaml), completely
+# separate from discovery.yml's default rotation. Added because the
+# original query pool was hand-written toward high-school/India and never
+# surfaces college-relevant opportunities; this does not modify that lane
+# at all (see DEFAULT_ROTATION_EXCLUDED_GROUPS in
+# apps/scraper/app/discovery/queries.py).
+
+on:
+  schedule:
+    # Offset from discovery.yml's Mon/Wed/Fri 06:00 UTC to avoid two runs
+    # writing to the same Turso database at the same time.
+    - cron: "0 6 * * 2,4,6"
+  workflow_dispatch:
+    inputs:
+      query_count:
+        description: "Number of undergraduate_usa queries to run (use a small number for a quick verification run)"
+        required: false
+        default: "5"
+
+jobs:
+  discovery-undergrad:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: apps/scraper
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Install Playwright browser
+        run: playwright install chromium --with-deps
+
+      - name: Run undergraduate discovery
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          LLM_COMPAT_API_KEY: ${{ secrets.LLM_COMPAT_API_KEY }}
+          LLM_COMPAT_BASE_URL: ${{ vars.LLM_COMPAT_BASE_URL }}
+          LLM_COMPAT_MODEL: ${{ vars.LLM_COMPAT_MODEL }}
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+          SERPAPI_API_KEY: ${{ secrets.SERPAPI_API_KEY }}
+          DISCOVERY_QUERY_COUNT: ${{ inputs.query_count || '5' }}
+          DISCOVERY_WINNER_MINING_COUNT: "0"
+          DISCOVERY_QUERY_GROUP: "undergraduate_usa"
+        run: python -m app.discovery.run

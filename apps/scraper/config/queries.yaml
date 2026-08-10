@@ -51,6 +51,24 @@ general:
   - "grade 10 competition India"
   - "global youth competition"
 
+# Dedicated lane for undergraduate/college students (run via
+# discovery-undergrad.yml, not the default rotation — see
+# DEFAULT_ROTATION_EXCLUDED_GROUPS in discovery/queries.py). The existing
+# groups above stay high-school/India-oriented and untouched.
+undergraduate_usa:
+  - "undergraduate research fellowship USA"
+  - "college hackathon USA"
+  - "undergraduate business case competition"
+  - "college entrepreneurship competition USA"
+  - "undergraduate innovation challenge"
+  - "college coding competition USA"
+  - "undergraduate summer research program USA"
+  - "student startup pitch competition college"
+  - "undergraduate case study competition"
+  - "college design competition USA"
+  - "undergraduate fellowship program USA"
+  - "national college competition students"
+
 winner_mining:
   - "ISEF finalist other competitions"
   - "Earth Prize finalist awards"

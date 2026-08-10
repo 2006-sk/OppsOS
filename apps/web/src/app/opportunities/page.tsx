@@ -55,6 +55,7 @@ export default async function OpportunitiesPage({
     team: sp.team as OpportunityFilters["team"],
     freePaid: sp.freePaid as OpportunityFilters["freePaid"],
     saved: sp.saved as OpportunityFilters["saved"],
+    eligibleOnly: sp.eligibleOnly === "true",
   };
 
   const hasActiveFilters = Object.values(sp).some(Boolean);

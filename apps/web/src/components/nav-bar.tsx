@@ -1,7 +1,14 @@
 import Link from "next/link";
 import { LogoutButton } from "@/components/logout-button";
+import { getSession } from "@/lib/session";
+import { prisma } from "@/lib/prisma";
 
-export function NavBar() {
+export async function NavBar() {
+  const session = await getSession();
+  const isAdmin = session
+    ? Boolean((await prisma.user.findUnique({ where: { id: session.userId }, select: { isAdmin: true } }))?.isAdmin)
+    : false;
+
   return (
     <header className="border-b border-zinc-200 bg-white/80 backdrop-blur">
       <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4">
@@ -16,9 +23,11 @@ export function NavBar() {
             <Link href="/saved" className="hover:text-zinc-900">
               Saved
             </Link>
-            <Link href="/admin/review" className="hover:text-zinc-900">
-              Admin
-            </Link>
+            {isAdmin && (
+              <Link href="/admin/review" className="hover:text-zinc-900">
+                Admin
+              </Link>
+            )}
           </nav>
         </div>
         <LogoutButton />
