@@ -1,6 +1,6 @@
 # Opportunity OS
 
-Opportunity OS answers one question for a Grade 10 student in India: **"What are the best opportunities available to me right now, how hard are they, and which ones are worth pursuing?"**
+Opportunity OS answers one question for a middle/high school or undergraduate student: **"What are the best opportunities available to me right now, how hard are they, and which ones are worth pursuing?"** It started as a Grade-10-in-India-specific MVP; the profile, eligibility, and scoring layers were later generalized to support both school and college students without changing the underlying architecture.
 
 It's not a database someone maintains by hand. A Python service actively **discovers** competitions, olympiads, fellowships, summer programs, and similar opportunities from the open web, extracts structured facts from them, and re-checks known opportunities for changes over time. A Next.js app ranks and presents only the opportunities worth a student's attention — with every important fact traceable to a source URL.
 
@@ -49,11 +49,20 @@ All three flow through the same validation step (implausible dates get dropped, 
 
 Every opportunity the scraper discovers is inserted with `published = false`. It does **not** appear in the student-facing feed until an admin accepts the matching row on `/admin/review` (see `apps/web/src/app/admin/review/`). This is the most effective lever for reliability in a system that turns web pages into structured facts automatically — a discovered "opportunity" that's actually a listicle blog post gets caught here, not shown to the student. The first account ever registered is auto-promoted to admin (see `apps/web/src/app/api/auth/register/route.ts`); promote additional admins by setting `isAdmin = true` directly in the database until a real admin-management UI exists.
 
+### Eligibility vs. fit — a hard gate, not a ranking input
+
+Eligibility and fit are deliberately two separate axes, computed by two separate functions:
+
+- **Eligibility** (`apps/web/src/lib/eligibility.ts`, `evaluateEligibility`) is a deterministic gate evaluated per (profile, opportunity) pair at read time — the same tier as `fitScore`, never stored on `Opportunity`. It returns one of three states: `eligible`, `ineligible`, or `unverified` (when a requirement is stated but the profile lacks the data to confirm it — e.g. an age range with no date of birth on file). `ineligible` opportunities are excluded from the feed entirely; `unverified` ones stay visible with a caveat badge rather than being silently dropped, since we can't confidently justify hiding them either.
+- **Fit** (`apps/web/src/lib/fit.ts`, `computeFit`) is a pure 0–100 soft-scoring heuristic — category/interest/team/budget/hours match. It is only ever computed for opportunities that pass the eligibility gate; it must never be used to compensate for or express ineligibility (an earlier version of this function did exactly that, returning a low score for ineligible profiles instead of a separate status — fixed in the eligibility redesign).
+- `computeRecommendation` (`apps/web/src/lib/recommendation.ts`) takes the eligibility status as an explicit input: `ineligible` always skips regardless of scores, and `unverified` can surface as `consider` but never `do_it` — we don't tell a student to commit to something we couldn't confirm they qualify for.
+
 ### Scoring
 
-- `difficultyScore`, `valueScore`, `legitimacyScore` are opportunity-level (not per-student) and are computed by the scraper's ranking heuristics (`apps/scraper/app/ranking/score.py`) at extraction/monitoring time.
+- `difficultyScore`, `valueScore`, `legitimacyScore`, and `classification` (`major`/`hidden_gem`/`standard`/`unknown`) are opportunity-level (not per-student) and are computed by the scraper's ranking heuristics (`apps/scraper/app/ranking/score.py`) at extraction/monitoring time. **None of these are ever derived from prize/cash amount** — a $100,000 prize and a $0 prize score identically if everything else about the opportunity is equal (see the regression tests in `apps/scraper/tests/test_ranking.py`).
 - `fitScore` and the `do_it` / `consider` / `skip` recommendation are per-student — they depend on a specific profile, so they're computed by the Next.js app at read time (`apps/web/src/lib/fit.ts`, `apps/web/src/lib/recommendation.ts`), joining the logged-in student's profile against each opportunity.
-- All four map from an internal 0–100 number to a label (`EASY`/`MEDIUM`/`HARD`/`EXTREME`, `POOR`/`OKAY`/`GOOD`/`GREAT`, `LOW`/`MEDIUM`/`HIGH`/`EXCEPTIONAL`) via `apps/web/src/lib/scoring.ts` — the UI never renders a raw score.
+- All map from an internal 0–100 number to a label (`EASY`/`MEDIUM`/`HARD`/`EXTREME`, `POOR`/`OKAY`/`GOOD`/`GREAT`, `LOW`/`MEDIUM`/`HIGH`/`EXCEPTIONAL`) via `apps/web/src/lib/scoring.ts` — the UI never renders a raw score.
+- The feed (`/opportunities`) is organized into sections — Best For You, Hidden Gems, Major, Newly Discovered, Coming Soon — all derived from a single scored fetch per page load (`apps/web/src/lib/db/opportunities.ts`'s `pickBestForYou`/`pickHiddenGems`/`pickMajor`/`pickNewlyDiscovered`/`pickComingSoon`), not five separate DB round-trips.
 
 ## Local setup
 
@@ -168,7 +177,7 @@ See `.env.example` for the full documented list. Summary:
 
 ## Testing
 
-Web app (Vitest — pure scoring/fit/recommendation logic):
+Web app (Vitest — pure scoring/fit/eligibility/recommendation logic, 33 tests):
 
 ```bash
 cd apps/web
@@ -202,6 +211,7 @@ python -m pytest
 - **Detail page sections C–F are mostly empty in this build.** "What they judge," "what to submit," "competition stages," and "previous winners" only render if `opportunity_requirements`/`past_winners` rows exist. Neither the seed data (deliberately — those facts weren't confirmed for the 5 seeded opportunities) nor the heuristic extractor (deliberately conservative) populate them, so in heuristic mode these sections show "not documented yet" for every opportunity. An LLM extractor with a real `OPENAI_API_KEY` populates these fields when the source page states them.
 - **The Playwright JS-rendering fallback is real and was verified live inside the actual async discovery pipeline** — not just unit-tested against mocks, and not just run as a standalone sync script (an earlier version of this note only verified the latter, which is a materially weaker claim: see the incident below). `fetch_page()` correctly detects a sparse `requests` fetch and falls back to a real headless Chromium render.
 - **Incident, root-caused and fixed during development**: a live discovery run once hung for over an hour with the process sitting at ~0% CPU. Root causes were two real bugs, both now fixed with regression tests: (1) `socket.getaddrinfo()` in the SSRF guard (`apps/scraper/app/utils/ssrf.py`) has no built-in timeout and blocked forever on a domain with non-responding DNS — now resolved on a timed-out daemon thread; (2) Playwright's *sync* API cannot run on a thread with an active asyncio event loop, which `discovery/run.py` and `winner_mining.py` both have — every Playwright fallback attempt during a real discovery run was silently failing with a "Sync API inside the asyncio loop" error (it only "worked" in the earlier, non-representative standalone-script test above). Fixed by moving the synchronous per-URL pipeline work onto a worker thread via `asyncio.to_thread` in both files. Re-verified live after the fix: a run completed cleanly, correctly handling a connect-timeout domain and a domain with an actually-expired SSL certificate along the way, with Playwright observed genuinely attempting (and appropriately timing out on) real browser navigation rather than failing instantly.
+- **Second incident, found via a GitHub Actions run and fixed**: `libsql_client.ClientSync` (the sync wrapper used by the Python scraper) bridges to an async client via a background thread that is **not** a daemon thread and only stops when `.close()` is called (see `libsql_client/sync.py`'s `_AsyncExecutor`). Nothing called it, so every `python -m app.discovery.run`/`app.monitoring.run` invocation hung indefinitely after finishing — observed live as a GitHub Actions job whose script logged `discovery_run_complete` and returned, but whose job didn't exit until the workflow's `timeout-minutes` killed it 18 minutes later. Fixed by calling `close_client()` in a `finally` block in both entry points (`apps/scraper/app/storage/db.py`); regression-tested in `tests/test_db.py`. Both `discovery.yml` and `monitor.yml` also now set `timeout-minutes: 20` as a backstop — there was no timeout at all before, meaning a true hang could have run for GitHub's 6-hour default. Re-verified live after the fix: a fresh `workflow_dispatch` run on `ubuntu-latest` completed with `conclusion: success` in under two minutes (vs. the pre-fix run that logged its result and then still ran until the timeout killed it).
 
 ## Success criteria checklist (spec section 37)
 
@@ -210,4 +220,6 @@ python -m pytest
 - [x] Run a discovery job (`python -m app.discovery.run`) — verified live against Tavily; it found real candidate opportunities, scraped and classified them, and stored valid ones unpublished.
 - [x] Duplicate opportunities are filtered — verified live: a second listicle article about the same "Top Research Competitions for Indian High School Students" roundup, found via a different search query, was correctly matched against the first (same domain + high name similarity) and recorded as `state = duplicate` rather than inserted as a new opportunity.
 - [x] Known opportunities can be re-checked (`python -m app.monitoring.run`) — verified live; it re-fetched official sources, compared content hashes, and updated `lastVerifiedAt`.
-- [x] Newly discovered, eligible, high-fit/high-value opportunities appear under "Newly Found For You" once accepted via admin review — verified live: a real Tavily-discovered candidate was accepted through `/admin/review` and immediately appeared in `/api/opportunities` with a computed fit/value/recommendation.
+- [x] Newly discovered, eligible, high-fit/high-value opportunities appear under "Newly Discovered" once accepted via admin review — verified live: a real Tavily-discovered candidate was accepted through `/admin/review` and immediately appeared in `/opportunities` with a computed fit/value/recommendation.
+- [x] Both school and undergraduate profiles work, and eligibility never overlaps where it shouldn't — `eligibility.test.ts` runs a worked example against a Grade 10 India profile and a 2nd-year undergrad India profile over the same six-opportunity set (five real seeded opportunities plus one undergrad-only synthetic one): their eligible sets only overlap on the one opportunity with no stated restriction at all, and each profile is correctly excluded from the opportunities meant for the other education level.
+- [x] Fit/value/difficulty/classification never take prize/cash amount into account — enforced with regression tests on both sides (`fit.test.ts`'s "never scores based on prize/cash value", `test_ranking.py`'s prize-removal and classification tests).
