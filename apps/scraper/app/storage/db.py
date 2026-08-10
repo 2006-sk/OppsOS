@@ -1,37 +1,37 @@
 from __future__ import annotations
 
-import sqlite3
-from contextlib import contextmanager
-from typing import Iterator
+import libsql_client
 
-from app.config import DB_PATH
+from app.config import TURSO_AUTH_TOKEN, TURSO_HTTP_URL
 
-
-def get_connection() -> sqlite3.Connection:
-    if not DB_PATH.exists():
-        raise RuntimeError(
-            f"Database not found at {DB_PATH}. Run `npx prisma migrate dev` in apps/web first "
-            "to create the shared schema."
-        )
-    conn = sqlite3.connect(str(DB_PATH), timeout=30)
-    conn.row_factory = sqlite3.Row
-    # Both this service and the Next.js app write to the same file — WAL lets
-    # readers and writers coexist, and busy_timeout makes SQLite retry
-    # instead of raising "database is locked" on the (rare) write collision.
-    conn.execute("PRAGMA journal_mode=WAL;")
-    conn.execute("PRAGMA busy_timeout=5000;")
-    conn.execute("PRAGMA foreign_keys=ON;")
-    return conn
+_client: libsql_client.ClientSync | None = None
 
 
-@contextmanager
-def connection() -> Iterator[sqlite3.Connection]:
-    conn = get_connection()
-    try:
-        yield conn
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
+def get_client() -> libsql_client.ClientSync:
+    global _client
+    if _client is None:
+        if not TURSO_HTTP_URL:
+            raise RuntimeError(
+                "TURSO_DATABASE_URL is not set. Add it (and TURSO_AUTH_TOKEN) to apps/scraper/.env."
+            )
+        _client = libsql_client.create_client_sync(url=TURSO_HTTP_URL, auth_token=TURSO_AUTH_TOKEN)
+    return _client
+
+
+def execute(sql: str, params: list | None = None) -> libsql_client.ResultSet:
+    return get_client().execute(sql, params or [])
+
+
+def fetchone(sql: str, params: list | None = None) -> dict | None:
+    rs = execute(sql, params)
+    return rs.rows[0].asdict() if rs.rows else None
+
+
+def fetchall(sql: str, params: list | None = None) -> list[dict]:
+    rs = execute(sql, params)
+    return [row.asdict() for row in rs.rows]
+
+
+def batch(statements: list[tuple[str, list]]) -> None:
+    """Runs multiple statements as a single atomic round-trip."""
+    get_client().batch([libsql_client.Statement(sql, params) for sql, params in statements])

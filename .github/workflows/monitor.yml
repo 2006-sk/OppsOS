@@ -1,7 +1,7 @@
 name: Monitoring
 
-# See discovery.yml for why this defaults to a self-hosted runner — it needs
-# access to the same persistent data/app.db the live app reads from.
+# Runs on a GitHub-hosted runner against the live Turso database — see
+# discovery.yml for details.
 
 on:
   schedule:
@@ -10,7 +10,7 @@ on:
 
 jobs:
   monitor:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: apps/scraper
@@ -31,7 +31,8 @@ jobs:
 
       - name: Run monitoring
         env:
-          DATABASE_PATH: ${{ vars.DATABASE_PATH }}
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           LLM_COMPAT_API_KEY: ${{ secrets.LLM_COMPAT_API_KEY }}
           LLM_COMPAT_BASE_URL: ${{ vars.LLM_COMPAT_BASE_URL }}

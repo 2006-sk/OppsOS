@@ -1,8 +1,9 @@
 // Opportunity OS — Prisma schema
 //
 // NOTE on scope deviation from the original spec: this MVP uses SQLite
-// (shared by this Next.js app and the Python scraper service) instead of
-// Postgres/Supabase, so it runs with zero external accounts. Consequences:
+// (via Turso/libSQL, a network-reachable SQLite-compatible service — see
+// src/lib/prisma.ts) instead of Postgres/Supabase, so it runs with zero
+// self-hosted infra. Consequences:
 //   - No native enum type on SQLite -> enum-like fields are `String` with
 //     the allowed values documented in a comment above each field. Validate
 //     them at the application boundary (see src/lib/enums.ts).
@@ -13,6 +14,9 @@
 //     server-side. There is no DB-level backstop.
 //   - IDs use cuid() instead of Postgres uuid() — both are collision-safe
 //     unique strings, cuid() is the Prisma-recommended default for SQLite.
+//   - The "sqlite" provider + libSQL driver adapter combination: the
+//     driverAdapters flag is stable as of this Prisma version (6.19), no
+//     previewFeatures entry needed.
 
 generator client {
   provider = "prisma-client-js"
@@ -20,7 +24,7 @@ generator client {
 
 datasource db {
   provider = "sqlite"
-  url      = env("DATABASE_URL")
+  url      = env("TURSO_DATABASE_URL")
 }
 
 // ---------------------------------------------------------------------------

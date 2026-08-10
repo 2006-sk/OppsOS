@@ -11,7 +11,18 @@ SCRAPER_ROOT = Path(__file__).resolve().parents[1]
 
 load_dotenv(SCRAPER_ROOT / ".env")
 
-DB_PATH = Path(os.environ.get("DATABASE_PATH", REPO_ROOT / "data" / "app.db")).resolve()
+# Turso/libSQL — network-reachable, so this and the Next.js app (and
+# GitHub-hosted Actions runners) can all share the same live database.
+# TURSO_DATABASE_URL is expected in the canonical "libsql://" form (same
+# value the Node/Prisma side uses). Python's libsql-client sync wrapper
+# hangs indefinitely over the libsql:// (websocket/hrana) transport —
+# verified empirically — but works correctly and instantly over "https://",
+# so we rewrite the scheme here rather than ask for two separate env vars.
+_TURSO_URL_RAW = os.environ.get("TURSO_DATABASE_URL", "").strip() or None
+TURSO_HTTP_URL = (
+    _TURSO_URL_RAW.replace("libsql://", "https://", 1) if _TURSO_URL_RAW else None
+)
+TURSO_AUTH_TOKEN = os.environ.get("TURSO_AUTH_TOKEN", "").strip() or None
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "").strip() or None
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
