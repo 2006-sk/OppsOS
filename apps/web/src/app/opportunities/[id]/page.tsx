@@ -57,9 +57,14 @@ export default async function OpportunityDetailPage({
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="outline">{CATEGORY_LABELS[o.category as Category] ?? o.category}</Badge>
             {o.isNew && <Badge className="bg-blue-50 text-blue-700 hover:bg-blue-50">Newly discovered</Badge>}
-            {!o.eligible && (
+            {o.eligibilityStatus === "ineligible" && (
               <Badge variant="outline" className="border-red-200 text-red-600">
-                Not eligible: {o.eligibilityReason}
+                Not eligible: {o.eligibilityReasons.join("; ")}
+              </Badge>
+            )}
+            {o.eligibilityStatus === "unverified" && (
+              <Badge variant="outline" className="border-amber-200 text-amber-700">
+                Eligibility unverified: {o.eligibilityReasons.join("; ")}
               </Badge>
             )}
           </div>
@@ -180,6 +185,24 @@ export default async function OpportunityDetailPage({
           <section>
             <h2 className="mb-1 text-sm font-semibold text-zinc-900">E. Competition stages</h2>
             <JsonList value={o.requirements?.stages} />
+          </section>
+          <Separator />
+          <section>
+            <h2 className="mb-1 text-sm font-semibold text-zinc-900">Awards</h2>
+            {o.awards.length === 0 ? (
+              <p className="text-sm text-zinc-500">Not documented yet — check the official source.</p>
+            ) : (
+              <ul className="space-y-1 text-sm text-zinc-700">
+                {o.awards.map((a) => (
+                  <li key={a.id}>
+                    <Badge variant="outline" className="mr-2 capitalize">
+                      {a.certificateLevel}
+                    </Badge>
+                    {a.title}
+                  </li>
+                ))}
+              </ul>
+            )}
           </section>
           <Separator />
           <section>

@@ -54,8 +54,24 @@ model Profile {
   userId String @unique
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  name    String
-  grade   Int
+  name String
+
+  // allowed: "middle_school" | "high_school" | "undergraduate" | "other"
+  // Drives which of the fields below are meaningful — see src/lib/eligibility.ts.
+  educationLevel String @default("high_school")
+
+  // Meaningful when educationLevel is middle_school/high_school. Nullable
+  // because it does not apply to undergraduate/other profiles.
+  grade Int?
+  // Age-based eligibility fallback (many competitions gate on age, not
+  // grade/year — e.g. Earth Prize, Diamond Challenge) and the only gate that
+  // applies uniformly across education levels.
+  dateOfBirth DateTime?
+
+  // Meaningful when educationLevel is "undergraduate".
+  collegeYear Int?
+  major       String?
+
   country String
   state   String?
   city    String?
@@ -108,6 +124,17 @@ model Opportunity {
   minAge   Int?
   maxAge   Int?
 
+  // string[] of "middle_school" | "high_school" | "undergraduate" | "other",
+  // null = not stated (see src/lib/eligibility.ts for how absence is
+  // treated — not the same as an explicit exclusion).
+  educationLevels Json?
+  // string[] of nationality/citizenship restrictions, distinct from
+  // eligibleCountries (which is about residence/where the program runs).
+  // null = no citizenship restriction stated.
+  citizenshipRequirements Json?
+  schoolNominationRequired      Boolean @default(false)
+  institutionNominationRequired Boolean @default(false)
+
   individualAllowed Boolean @default(true)
   teamAllowed       Boolean @default(false)
   teamSizeMin       Int?
@@ -131,11 +158,16 @@ model Opportunity {
   published Boolean @default(true)
 
   // internal 0-100 numeric scores; UI must map these to labels, never show raw numbers
+  // valueScore/difficultyScore must never be derived from prize amount.
   difficultyScore  Int?
   valueScore       Int?
   legitimacyScore  Int?
   // confidence (0-100) in the extracted facts overall
   sourceConfidence Int?
+
+  // allowed: "major" | "hidden_gem" | "standard" | "unknown" — deterministic
+  // heuristic (see score.py), not an LLM guess. Never derived from prize amount.
+  classification String @default("unknown")
 
   // allowed: "seed" | "tavily" | "serpapi" | "winner_mining" | "manual"
   discoverySource String?
@@ -147,6 +179,7 @@ model Opportunity {
 
   sources             OpportunitySource[]
   requirements        OpportunityRequirement?
+  awards              OpportunityAward[]
   pastWinners         PastWinner[]
   userStates          UserOpportunityState[]
   scores              OpportunityScore[]
@@ -194,6 +227,24 @@ model OpportunityRequirement {
   updatedAt DateTime @updatedAt
 
   @@map("opportunity_requirements")
+}
+
+model OpportunityAward {
+  id            String      @id @default(cuid())
+  opportunityId String
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+
+  title String
+  // allowed: "participation" | "finalist" | "winner" | "other" — the
+  // participation-vs-winner distinction is what the UI renders; do not
+  // collapse this into a single "awarded" boolean.
+  certificateLevel String
+  description      String?
+
+  createdAt DateTime @default(now())
+
+  @@index([opportunityId])
+  @@map("opportunity_awards")
 }
 
 model PastWinner {

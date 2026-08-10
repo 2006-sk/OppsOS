@@ -75,6 +75,24 @@ export const INTEREST_LABELS: Record<Interest, string> = {
 export const TEAM_PREFERENCES = ["individual", "team", "either"] as const;
 export type TeamPreference = (typeof TEAM_PREFERENCES)[number];
 
+export const EDUCATION_LEVELS = ["middle_school", "high_school", "undergraduate", "other"] as const;
+export type EducationLevel = (typeof EDUCATION_LEVELS)[number];
+
+export const EDUCATION_LEVEL_LABELS: Record<EducationLevel, string> = {
+  middle_school: "Middle school",
+  high_school: "High school",
+  undergraduate: "Undergraduate / college",
+  other: "Other",
+};
+
+// Eligibility is a hard gate, computed separately from (and never
+// compensated for by) fit/value scoring — see src/lib/eligibility.ts.
+export const ELIGIBILITY_STATUSES = ["eligible", "ineligible", "unverified"] as const;
+export type EligibilityStatus = (typeof ELIGIBILITY_STATUSES)[number];
+
+export const OPPORTUNITY_CLASSIFICATIONS = ["major", "hidden_gem", "standard", "unknown"] as const;
+export type OpportunityClassification = (typeof OPPORTUNITY_CLASSIFICATIONS)[number];
+
 export const OPPORTUNITY_STATUSES = [
   "open",
   "upcoming",

@@ -15,7 +15,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { CATEGORIES, CATEGORY_LABELS, INTERESTS, INTEREST_LABELS } from "@/lib/enums";
+import {
+  CATEGORIES,
+  CATEGORY_LABELS,
+  EDUCATION_LEVELS,
+  EDUCATION_LEVEL_LABELS,
+  INTERESTS,
+  INTEREST_LABELS,
+  type EducationLevel,
+} from "@/lib/enums";
 
 function ChipToggle({
   label,
@@ -43,7 +51,11 @@ function ChipToggle({
 export default function OnboardingPage() {
   const router = useRouter();
   const [name, setName] = useState("");
+  const [educationLevel, setEducationLevel] = useState<EducationLevel>("high_school");
   const [grade, setGrade] = useState("10");
+  const [dateOfBirth, setDateOfBirth] = useState("");
+  const [collegeYear, setCollegeYear] = useState("2");
+  const [major, setMajor] = useState("");
   const [country, setCountry] = useState("India");
   const [state, setState] = useState("");
   const [city, setCity] = useState("");
@@ -55,6 +67,9 @@ export default function OnboardingPage() {
   const [budgetMax, setBudgetMax] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  const isSchoolLevel = educationLevel === "middle_school" || educationLevel === "high_school";
+  const isUndergraduate = educationLevel === "undergraduate";
 
   function toggle(list: string[], setList: (v: string[]) => void, value: string) {
     setList(list.includes(value) ? list.filter((v) => v !== value) : [...list, value]);
@@ -73,7 +88,11 @@ export default function OnboardingPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name,
-          grade: Number(grade),
+          educationLevel,
+          grade: isSchoolLevel ? Number(grade) : null,
+          dateOfBirth: dateOfBirth || null,
+          collegeYear: isUndergraduate ? Number(collegeYear) : null,
+          major: isUndergraduate ? major || null : null,
           country,
           state: state || null,
           city: city || null,
@@ -103,7 +122,7 @@ export default function OnboardingPage() {
         <CardHeader>
           <CardTitle className="text-2xl font-semibold tracking-tight">Tell us about you</CardTitle>
           <CardDescription>
-            This shapes which opportunities we surface and how we score fit for you.
+            This shapes which opportunities you&apos;re eligible for and how we score fit for you.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -113,21 +132,87 @@ export default function OnboardingPage() {
                 <Label htmlFor="name">Name</Label>
                 <Input id="name" required value={name} onChange={(e) => setName(e.target.value)} />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="grade">Grade</Label>
-                <Select value={grade} onValueChange={(v) => v && setGrade(v)}>
-                  <SelectTrigger id="grade" className="w-full">
+
+              <div className="col-span-2 space-y-2">
+                <Label htmlFor="educationLevel">Education level</Label>
+                <Select
+                  value={educationLevel}
+                  onValueChange={(v) => v && setEducationLevel(v as EducationLevel)}
+                >
+                  <SelectTrigger id="educationLevel" className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {Array.from({ length: 12 }, (_, i) => i + 1).map((g) => (
-                      <SelectItem key={g} value={String(g)}>
-                        Grade {g}
+                    {EDUCATION_LEVELS.map((level) => (
+                      <SelectItem key={level} value={level}>
+                        {EDUCATION_LEVEL_LABELS[level]}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
+
+              {isSchoolLevel && (
+                <div className="space-y-2">
+                  <Label htmlFor="grade">Grade</Label>
+                  <Select value={grade} onValueChange={(v) => v && setGrade(v)}>
+                    <SelectTrigger id="grade" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Array.from({ length: 12 }, (_, i) => i + 1).map((g) => (
+                        <SelectItem key={g} value={String(g)}>
+                          Grade {g}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              {isUndergraduate && (
+                <>
+                  <div className="space-y-2">
+                    <Label htmlFor="collegeYear">College year</Label>
+                    <Select value={collegeYear} onValueChange={(v) => v && setCollegeYear(v)}>
+                      <SelectTrigger id="collegeYear" className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Array.from({ length: 6 }, (_, i) => i + 1).map((y) => (
+                          <SelectItem key={y} value={String(y)}>
+                            Year {y}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="major">Major/field of study</Label>
+                    <Input
+                      id="major"
+                      value={major}
+                      onChange={(e) => setMajor(e.target.value)}
+                      placeholder="e.g. Computer Science"
+                    />
+                  </div>
+                </>
+              )}
+
+              <div className={isSchoolLevel || isUndergraduate ? "space-y-2" : "col-span-2 space-y-2"}>
+                <Label htmlFor="dateOfBirth">Date of birth (optional)</Label>
+                <Input
+                  id="dateOfBirth"
+                  type="date"
+                  value={dateOfBirth}
+                  onChange={(e) => setDateOfBirth(e.target.value)}
+                />
+                <p className="text-xs text-zinc-500">
+                  Many competitions gate eligibility by age, not grade/year — without this we can&apos;t
+                  confirm you qualify for those.
+                </p>
+              </div>
+
               <div className="space-y-2">
                 <Label htmlFor="country">Country</Label>
                 <Input id="country" required value={country} onChange={(e) => setCountry(e.target.value)} />
@@ -148,7 +233,7 @@ export default function OnboardingPage() {
                 <Input id="city" placeholder="City" value={city} onChange={(e) => setCity(e.target.value)} />
               </div>
               <div className="col-span-2 space-y-2">
-                <Label htmlFor="school">School (optional)</Label>
+                <Label htmlFor="school">{isUndergraduate ? "College/university (optional)" : "School (optional)"}</Label>
                 <Textarea id="school" value={school} onChange={(e) => setSchool(e.target.value)} rows={1} />
               </div>
             </div>

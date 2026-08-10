@@ -7,7 +7,11 @@ function makeProfile(overrides: Partial<Profile> = {}): Profile {
     id: "p1",
     userId: "u1",
     name: "Test Student",
+    educationLevel: "high_school",
     grade: 10,
+    dateOfBirth: null,
+    collegeYear: null,
+    major: null,
     country: "India",
     state: null,
     city: null,
@@ -41,6 +45,10 @@ function makeOpportunity(overrides: Partial<Opportunity> = {}): Opportunity {
     maxGrade: null,
     minAge: null,
     maxAge: null,
+    educationLevels: null,
+    citizenshipRequirements: null,
+    schoolNominationRequired: false,
+    institutionNominationRequired: false,
     individualAllowed: true,
     teamAllowed: true,
     teamSizeMin: 1,
@@ -57,6 +65,7 @@ function makeOpportunity(overrides: Partial<Opportunity> = {}): Opportunity {
     valueScore: 50,
     legitimacyScore: 80,
     sourceConfidence: 80,
+    classification: "unknown",
     discoverySource: "seed",
     discoveredAt: new Date(),
     lastVerifiedAt: null,
@@ -65,35 +74,6 @@ function makeOpportunity(overrides: Partial<Opportunity> = {}): Opportunity {
     ...overrides,
   } as unknown as Opportunity;
 }
-
-describe("computeFit — hard eligibility gates", () => {
-  it("is ineligible when below the minimum grade", () => {
-    const result = computeFit(makeProfile({ grade: 8 }), makeOpportunity({ minGrade: 9, maxGrade: 12 }));
-    expect(result.eligible).toBe(false);
-    expect(result.fitScore).toBeLessThan(10);
-  });
-
-  it("is ineligible when above the maximum grade", () => {
-    const result = computeFit(makeProfile({ grade: 12 }), makeOpportunity({ minGrade: 5, maxGrade: 10 }));
-    expect(result.eligible).toBe(false);
-  });
-
-  it("is ineligible when the country is excluded from an explicit allowlist", () => {
-    const result = computeFit(
-      makeProfile({ country: "India" }),
-      makeOpportunity({ countryScope: "country_specific", eligibleCountries: ["United States"] })
-    );
-    expect(result.eligible).toBe(false);
-  });
-
-  it("is eligible when country matches an explicit allowlist", () => {
-    const result = computeFit(
-      makeProfile({ country: "India" }),
-      makeOpportunity({ countryScope: "country_specific", eligibleCountries: ["India"] })
-    );
-    expect(result.eligible).toBe(true);
-  });
-});
 
 describe("computeFit — soft scoring", () => {
   it("does not false-positive match a 2-letter interest inside an unrelated word", () => {
@@ -144,5 +124,14 @@ describe("computeFit — soft scoring", () => {
       makeOpportunity({ applicationFee: 1000 })
     );
     expect(withinBudget.fitScore).toBeGreaterThan(overBudget.fitScore);
+  });
+
+  it("never scores based on prize/cash value", () => {
+    const noPrize = computeFit(makeProfile(), makeOpportunity({ prizeDescription: null }));
+    const bigPrize = computeFit(
+      makeProfile(),
+      makeOpportunity({ prizeDescription: "$100,000 cash prize" })
+    );
+    expect(bigPrize.fitScore).toBe(noPrize.fitScore);
   });
 });

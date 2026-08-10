@@ -1,9 +1,10 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
 import { computeFit } from "@/lib/fit";
+import { evaluateEligibility } from "@/lib/eligibility";
 import { computeRecommendation } from "@/lib/recommendation";
 import type { Opportunity, Profile } from "@prisma/client";
-import type { Recommendation } from "@/lib/enums";
+import type { Recommendation, EligibilityStatus } from "@/lib/enums";
 
 export interface OpportunityFilters {
   search?: string;
@@ -18,8 +19,8 @@ export interface OpportunityFilters {
 
 export interface ScoredFields {
   fitScore: number;
-  eligible: boolean;
-  eligibilityReason: string | null;
+  eligibilityStatus: EligibilityStatus;
+  eligibilityReasons: string[];
   fitExplanation: string;
   recommendation: Recommendation;
   isSaved: boolean;
@@ -39,12 +40,13 @@ function isDeadlineReachable(deadline: Date | null): boolean {
 export function scoreOpportunity<
   T extends Opportunity & { userStates: { saved: boolean; status: string }[] },
 >(opportunity: T, profile: Profile): T & ScoredFields {
+  const eligibility = evaluateEligibility(profile, opportunity);
   const fit = computeFit(profile, opportunity);
   const deadlinePassed = opportunity.deadline != null && !isDeadlineReachable(opportunity.deadline);
   const value = opportunity.valueScore ?? 50;
 
   const recommendation = computeRecommendation({
-    eligible: fit.eligible,
+    eligibilityStatus: eligibility.status,
     deadlinePassed,
     fitScore: fit.fitScore,
     valueScore: value,
@@ -57,8 +59,8 @@ export function scoreOpportunity<
   return {
     ...opportunity,
     fitScore: fit.fitScore,
-    eligible: fit.eligible,
-    eligibilityReason: fit.eligibilityReason,
+    eligibilityStatus: eligibility.status,
+    eligibilityReasons: eligibility.reasons,
     fitExplanation: deadlinePassed ? "The deadline for this has already passed." : fit.explanation,
     recommendation,
     isSaved: state?.saved ?? false,
@@ -78,7 +80,12 @@ export async function listOpportunitiesForUser(
     orderBy: { discoveredAt: "desc" },
   });
 
-  let scored = opportunities.map((o) => scoreOpportunity(o, profile));
+  let scored = opportunities
+    .map((o) => scoreOpportunity(o, profile))
+    // Ineligible is a hard gate — never shown, regardless of fit/value.
+    // Unverified stays visible (with a caveat) since we can't confirm
+    // exclusion any more than we can confirm inclusion.
+    .filter((o) => o.eligibilityStatus !== "ineligible");
 
   if (filters.search) {
     const q = filters.search.toLowerCase();
@@ -130,7 +137,9 @@ export async function listOpportunitiesForUser(
   }
 
   if (filters.eligibleOnly) {
-    scored = scored.filter((o) => o.eligible);
+    // Ineligible is already excluded above — this additionally hides
+    // unverified, leaving only confirmed-eligible opportunities.
+    scored = scored.filter((o) => o.eligibilityStatus === "eligible");
   }
 
   if (filters.saved && filters.saved !== "all") {
@@ -148,18 +157,45 @@ export async function listOpportunitiesForUser(
   return scored;
 }
 
-export async function listNewlyFoundForUser(
-  userId: string,
-  profile: Profile
-): Promise<ScoredOpportunity[]> {
-  const all = await listOpportunitiesForUser(userId, profile, {});
+// The functions below all derive feed sections from a single already-scored
+// list (see listOpportunitiesForUser) rather than each re-querying the DB —
+// avoids N redundant round-trips (each one is a network call to Turso) for
+// what is fundamentally one dataset viewed five ways.
+
+export function pickNewlyDiscovered(all: ScoredOpportunity[]): ScoredOpportunity[] {
   return all.filter(
     (o) =>
       o.isNew &&
-      o.eligible &&
+      o.eligibilityStatus === "eligible" &&
       (o.fitScore ?? 0) >= 51 &&
       (o.valueScore ?? 0) >= 51
   );
+}
+
+/** Feed section: confirmed-eligible opportunities worth acting on now. */
+export function pickBestForYou(all: ScoredOpportunity[]): ScoredOpportunity[] {
+  return all.filter(
+    (o) => o.eligibilityStatus === "eligible" && (o.recommendation === "do_it" || o.recommendation === "consider")
+  );
+}
+
+/** Feed section: confirmed-eligible, well-known/high-legitimacy opportunities. */
+export function pickMajor(all: ScoredOpportunity[]): ScoredOpportunity[] {
+  return all.filter((o) => o.eligibilityStatus === "eligible" && o.classification === "major");
+}
+
+/**
+ * Feed section: confirmed-eligible opportunities that are real and legitimate
+ * but less commonly known — worth surfacing precisely because they're less
+ * crowded, not because they're lower quality.
+ */
+export function pickHiddenGems(all: ScoredOpportunity[]): ScoredOpportunity[] {
+  return all.filter((o) => o.eligibilityStatus === "eligible" && o.classification === "hidden_gem");
+}
+
+/** Feed section: opportunities that haven't opened yet. */
+export function pickComingSoon(all: ScoredOpportunity[]): ScoredOpportunity[] {
+  return all.filter((o) => o.eligibilityStatus !== "ineligible" && o.status === "upcoming");
 }
 
 export async function listSavedForUser(userId: string, profile: Profile): Promise<ScoredOpportunity[]> {
@@ -177,6 +213,7 @@ export async function getOpportunityDetail(id: string, userId: string, profile: 
     include: {
       sources: { orderBy: { retrievedAt: "desc" } },
       requirements: true,
+      awards: true,
       pastWinners: { orderBy: { year: "desc" } },
       userStates: { where: { userId } },
     },

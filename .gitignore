@@ -27,6 +27,11 @@ data/*.db-journal
 data/*.db-wal
 data/*.db-shm
 
+# Throwaway local sqlite file used only to derive Prisma migration SQL for
+# Turso (see README — Prisma's CLI can't target a libsql:// datasource
+# directly), never a real data store.
+apps/web/prisma/dev-throwaway.db*
+
 # Playwright
 apps/scraper/**/test-results/
 apps/scraper/**/playwright-report/

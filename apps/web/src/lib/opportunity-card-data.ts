@@ -1,5 +1,5 @@
 import type { ScoredOpportunity } from "@/lib/db/opportunities";
-import type { Recommendation } from "@/lib/enums";
+import type { Recommendation, EligibilityStatus } from "@/lib/enums";
 
 // Client-safe, JSON-serializable shape for passing scored opportunities from
 // server components to client components (dates as ISO strings).
@@ -22,8 +22,9 @@ export interface OpportunityCardData {
   isSaved: boolean;
   userStatus: string | null;
   isNew: boolean;
-  eligible: boolean;
-  eligibilityReason: string | null;
+  eligibilityStatus: EligibilityStatus;
+  eligibilityReasons: string[];
+  classification: string;
 }
 
 export function toCardData(o: ScoredOpportunity): OpportunityCardData {
@@ -46,7 +47,8 @@ export function toCardData(o: ScoredOpportunity): OpportunityCardData {
     isSaved: o.isSaved,
     userStatus: o.userStatus,
     isNew: o.isNew,
-    eligible: o.eligible,
-    eligibilityReason: o.eligibilityReason,
+    eligibilityStatus: o.eligibilityStatus,
+    eligibilityReasons: o.eligibilityReasons,
+    classification: o.classification,
   };
 }

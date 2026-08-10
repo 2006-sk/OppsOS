@@ -133,6 +133,7 @@ class ScoredExtraction:
     value_score: int
     legitimacy_score: int
     source_confidence: int
+    classification: str = "unknown"
 
 
 def create_opportunity(
@@ -159,12 +160,14 @@ def create_opportunity(
             INSERT INTO opportunities (
                 id, slug, name, organization, description, category, officialUrl,
                 applicationUrl, countryScope, eligibleCountries, minGrade, maxGrade,
-                minAge, maxAge, individualAllowed, teamAllowed, teamSizeMin, teamSizeMax,
+                minAge, maxAge, educationLevels, citizenshipRequirements,
+                schoolNominationRequired, institutionNominationRequired,
+                individualAllowed, teamAllowed, teamSizeMin, teamSizeMax,
                 applicationFee, feeCurrency, prizeDescription, deadline, opensAt, status,
                 published, difficultyScore, valueScore, legitimacyScore, sourceConfidence,
-                discoverySource, discoveredAt, createdAt, updatedAt
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                      ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                classification, discoverySource, discoveredAt, createdAt, updatedAt
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 opp_id,
@@ -181,6 +184,12 @@ def create_opportunity(
                 extraction.max_grade,
                 extraction.min_age,
                 extraction.max_age,
+                _json(extraction.education_levels) if extraction.education_levels else _json(None),
+                _json(extraction.citizenship_requirements)
+                if extraction.citizenship_requirements
+                else _json(None),
+                1 if extraction.school_nomination_required else 0,
+                1 if extraction.institution_nomination_required else 0,
                 1 if extraction.individual_allowed is not False else 0,
                 1 if extraction.team_allowed else 0,
                 extraction.team_size_min,
@@ -196,6 +205,7 @@ def create_opportunity(
                 scores.value_score,
                 scores.legitimacy_score,
                 scores.source_confidence,
+                scores.classification,
                 discovery_source,
                 now,
                 now,
@@ -228,6 +238,17 @@ def create_opportunity(
                     _json(extraction.stages),
                     now,
                 ],
+            )
+        )
+
+    for award in extraction.awards or []:
+        statements.append(
+            (
+                """
+                INSERT INTO opportunity_awards (id, opportunityId, title, certificateLevel, description, createdAt)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                [new_id(), opp_id, award.title, award.certificate_level, award.description, now],
             )
         )
 

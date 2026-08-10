@@ -91,13 +91,19 @@ async def run_discovery(
 def main() -> None:
     # Env overrides let CI dispatch a small verification run without a code
     # change (e.g. DISCOVERY_QUERY_COUNT=1 DISCOVERY_WINNER_MINING_COUNT=0).
-    result = asyncio.run(
-        run_discovery(
-            query_count=int(os.environ.get("DISCOVERY_QUERY_COUNT", "5")),
-            winner_mining_count=int(os.environ.get("DISCOVERY_WINNER_MINING_COUNT", "1")),
+    try:
+        result = asyncio.run(
+            run_discovery(
+                query_count=int(os.environ.get("DISCOVERY_QUERY_COUNT", "5")),
+                winner_mining_count=int(os.environ.get("DISCOVERY_WINNER_MINING_COUNT", "1")),
+            )
         )
-    )
-    print(result)
+        print(result)
+    finally:
+        # Without this the process hangs indefinitely — see db.close_client().
+        from app.storage.db import close_client
+
+        close_client()
 
 
 if __name__ == "__main__":

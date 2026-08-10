@@ -2,7 +2,17 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from app.utils.enums import CATEGORIES, OPPORTUNITY_STATUSES
+from app.utils.enums import CATEGORIES, CERTIFICATE_LEVELS, EDUCATION_LEVELS, OPPORTUNITY_STATUSES
+
+
+class AwardExtraction(BaseModel):
+    """A single named award/certificate this opportunity gives out. The
+    participation-vs-winner distinction is load-bearing for the UI — never
+    collapse it into a single 'awarded' boolean."""
+
+    title: str
+    certificate_level: str = Field(description=f"one of: {', '.join(CERTIFICATE_LEVELS)}")
+    description: str | None = None
 
 
 class OpportunityExtraction(BaseModel):
@@ -23,6 +33,15 @@ class OpportunityExtraction(BaseModel):
     max_grade: int | None = None
     min_age: int | None = None
     max_age: int | None = None
+    education_levels: list[str] | None = Field(
+        default=None, description=f"subset of: {', '.join(EDUCATION_LEVELS)} — only if explicitly stated"
+    )
+    citizenship_requirements: list[str] | None = Field(
+        default=None,
+        description="nationality/citizenship restrictions, distinct from residence-based eligible_countries",
+    )
+    school_nomination_required: bool | None = None
+    institution_nomination_required: bool | None = None
 
     individual_allowed: bool | None = None
     team_allowed: bool | None = None
@@ -39,6 +58,7 @@ class OpportunityExtraction(BaseModel):
     judging_criteria: list[str] | None = None
     submission_requirements: list[str] | None = None
     stages: list[str] | None = None
+    awards: list[AwardExtraction] | None = None
 
     status: str | None = Field(default=None, description=f"one of: {', '.join(OPPORTUNITY_STATUSES)}")
 

@@ -45,9 +45,24 @@ export function OpportunityCard({ opportunity }: { opportunity: OpportunityCardD
             <Badge variant="outline" className="text-zinc-600">
               {CATEGORY_LABELS[o.category as Category] ?? o.category}
             </Badge>
-            {!o.eligible && (
+            {o.eligibilityStatus === "ineligible" && (
               <Badge variant="outline" className="border-red-200 text-red-600">
                 Not eligible
+              </Badge>
+            )}
+            {o.eligibilityStatus === "unverified" && (
+              <Badge variant="outline" className="border-amber-200 text-amber-700">
+                Eligibility unverified
+              </Badge>
+            )}
+            {o.classification === "hidden_gem" && (
+              <Badge variant="outline" className="border-purple-200 text-purple-700">
+                Hidden gem
+              </Badge>
+            )}
+            {o.classification === "major" && (
+              <Badge variant="outline" className="border-indigo-200 text-indigo-700">
+                Major
               </Badge>
             )}
           </div>

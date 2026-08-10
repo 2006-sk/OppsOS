@@ -37,31 +37,12 @@ def compute_difficulty_score(extraction: OpportunityExtraction) -> int:
     return max(0, min(100, score))
 
 
-def _parse_prize_amount(prize_description: str | None) -> float | None:
-    if not prize_description:
-        return None
-    import re
-
-    matches = re.findall(r"[\$₹]\s?([\d,]{2,})", prize_description)
-    if not matches:
-        return None
-    try:
-        return max(float(m.replace(",", "")) for m in matches)
-    except ValueError:
-        return None
-
-
 def compute_value_score(extraction: OpportunityExtraction, legitimacy_score: int) -> int:
+    # Never derived from prize/cash amount, deliberately — value here means
+    # recognition, credential, and opportunity value, not cash. A $100,000
+    # prize pool and a $0 prize pool must be able to score identically if
+    # everything else about the opportunity is equal.
     score = 20 + round(legitimacy_score * 0.3)  # legitimacy is a floor/ceiling influence, not the whole story
-
-    prize_amount = _parse_prize_amount(extraction.prize_description)
-    if prize_amount is not None:
-        if prize_amount >= 50000:
-            score += 25
-        elif prize_amount >= 5000:
-            score += 15
-        elif prize_amount > 0:
-            score += 8
 
     text = _text_blob(extraction)
     if any(k in text for k in RECOGNITION_KEYWORDS):
@@ -70,6 +51,47 @@ def compute_value_score(extraction: OpportunityExtraction, legitimacy_score: int
         score += 10
 
     return max(0, min(100, score))
+
+
+# Recognizable, well-established organizations — a deterministic signal for
+# "major" classification. Not exhaustive; anything not on this list defaults
+# to standard/hidden-gem based on legitimacy, never to "major" by guesswork.
+WELL_KNOWN_ORG_KEYWORDS = [
+    "regeneron",
+    "intel",
+    "google",
+    "microsoft",
+    "national geographic",
+    "society for science",
+    "acm",
+    "ieee",
+    "nasa",
+    "mit",
+    "harvard",
+    "stanford",
+    "united nations",
+    "unesco",
+]
+
+
+def compute_classification(extraction: OpportunityExtraction, legitimacy_score: int) -> str:
+    """Deterministic major/hidden_gem/standard classification (spec section
+    on Major vs Hidden Gem). Never derived from prize amount. This is a
+    coarse first pass: applicant/finalist/winner-count based classification
+    is intentionally deferred until that data is reliably extracted.
+    """
+    if legitimacy_score < 50:
+        return "standard"
+
+    org = (extraction.organization or "").lower()
+    text = _text_blob(extraction)
+    is_well_known = any(k in org or k in text for k in WELL_KNOWN_ORG_KEYWORDS)
+
+    if is_well_known and legitimacy_score >= 80:
+        return "major"
+    if legitimacy_score >= 70 and not is_well_known:
+        return "hidden_gem"
+    return "standard"
 
 
 def compute_legitimacy_score(

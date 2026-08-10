@@ -4,7 +4,12 @@ from dataclasses import dataclass
 
 from app.extraction import get_extractor
 from app.extraction.dedup import find_duplicate
-from app.ranking.score import compute_difficulty_score, compute_legitimacy_score, compute_value_score
+from app.ranking.score import (
+    compute_classification,
+    compute_difficulty_score,
+    compute_legitimacy_score,
+    compute_value_score,
+)
 from app.storage import repository as repo
 from app.storage.repository import ScoredExtraction
 from app.utils.fetch import fetch_page
@@ -160,6 +165,7 @@ def process_candidate_url(
             scam_flags=scam_flags,
             extractor_name=extractor.name,
         ),
+        classification=compute_classification(extraction, legitimacy_score),
     )
 
     opportunity_id = repo.create_opportunity(

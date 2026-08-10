@@ -35,3 +35,20 @@ def fetchall(sql: str, params: list | None = None) -> list[dict]:
 def batch(statements: list[tuple[str, list]]) -> None:
     """Runs multiple statements as a single atomic round-trip."""
     get_client().batch([libsql_client.Statement(sql, params) for sql, params in statements])
+
+
+def close_client() -> None:
+    """libsql_client.ClientSync bridges to an async client via a background
+    thread that is NOT a daemon thread (see libsql_client/sync.py's
+    _AsyncExecutor) — it runs until .close() sends it a shutdown sentinel.
+    Without calling this, the Python process hangs indefinitely after
+    main() returns (observed live: a GitHub Actions run whose discovery
+    script logged its final result and returned, but whose job didn't exit
+    until the workflow's timeout-minutes killed it 18 minutes later). Every
+    CLI entry point (discovery/run.py, monitoring/run.py) must call this in
+    a finally block.
+    """
+    global _client
+    if _client is not None:
+        _client.close()
+        _client = None

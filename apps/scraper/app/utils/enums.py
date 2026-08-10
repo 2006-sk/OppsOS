@@ -22,3 +22,9 @@ DISCOVERY_CANDIDATE_STATES = ["pending", "accepted", "rejected", "duplicate"]
 SCRAPER_TYPES = ["discovery", "monitoring"]
 
 SCRAPE_RUN_STATUSES = ["running", "success", "partial", "failed"]
+
+EDUCATION_LEVELS = ["middle_school", "high_school", "undergraduate", "other"]
+
+CERTIFICATE_LEVELS = ["participation", "finalist", "winner", "other"]
+
+OPPORTUNITY_CLASSIFICATIONS = ["major", "hidden_gem", "standard", "unknown"]
