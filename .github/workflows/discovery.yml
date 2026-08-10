@@ -12,11 +12,21 @@ on:
     # rotates through queries itself, so more frequent runs just mean faster
     # rotation, not duplicate work.
     - cron: "0 6 * * 1,3,5"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      query_count:
+        description: "Number of discovery queries to run (use a small number for a quick verification run)"
+        required: false
+        default: "5"
+      winner_mining_count:
+        description: "Number of winner-mining queries to run"
+        required: false
+        default: "1"
 
 jobs:
   discovery:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: apps/scraper
@@ -45,4 +55,6 @@ jobs:
           LLM_COMPAT_MODEL: ${{ vars.LLM_COMPAT_MODEL }}
           TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
           SERPAPI_API_KEY: ${{ secrets.SERPAPI_API_KEY }}
+          DISCOVERY_QUERY_COUNT: ${{ inputs.query_count || '5' }}
+          DISCOVERY_WINNER_MINING_COUNT: ${{ inputs.winner_mining_count || '1' }}
         run: python -m app.discovery.run

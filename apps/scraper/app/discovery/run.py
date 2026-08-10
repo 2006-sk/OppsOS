@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 
 from app.discovery.pipeline import process_candidate_url
 from app.discovery.queries import pick_rotating_queries, pick_rotating_winner_mining_queries
@@ -88,7 +89,14 @@ async def run_discovery(
 
 
 def main() -> None:
-    result = asyncio.run(run_discovery())
+    # Env overrides let CI dispatch a small verification run without a code
+    # change (e.g. DISCOVERY_QUERY_COUNT=1 DISCOVERY_WINNER_MINING_COUNT=0).
+    result = asyncio.run(
+        run_discovery(
+            query_count=int(os.environ.get("DISCOVERY_QUERY_COUNT", "5")),
+            winner_mining_count=int(os.environ.get("DISCOVERY_WINNER_MINING_COUNT", "1")),
+        )
+    )
     print(result)
 
 
