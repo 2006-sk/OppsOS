@@ -4,31 +4,29 @@ Opportunity OS answers one question for a Grade 10 student in India: **"What are
 
 It's not a database someone maintains by hand. A Python service actively **discovers** competitions, olympiads, fellowships, summer programs, and similar opportunities from the open web, extracts structured facts from them, and re-checks known opportunities for changes over time. A Next.js app ranks and presents only the opportunities worth a student's attention — with every important fact traceable to a source URL.
 
-## Scope decision: SQLite instead of Supabase/Postgres
+## Scope decision: SQLite (via Turso/libSQL) instead of Supabase/Postgres
 
-The original design brief called for Supabase (Postgres + Auth). This build uses a **single shared SQLite file** (`data/app.db`) instead, with a small custom credentials-based auth layer (bcrypt + signed JWT session cookie), so the whole thing runs locally with zero external accounts. Concretely:
+The original design brief called for Supabase (Postgres + Auth). This build uses **SQLite semantics over Turso/libSQL** (a hosted, network-reachable SQLite-compatible database) instead, with a small custom credentials-based auth layer (bcrypt + signed JWT session cookie). Concretely:
 
 - **Auth**: email/password, hashed with bcrypt, session as an httpOnly JWT cookie. No Supabase Auth.
-- **RLS substitute**: SQLite has no Row Level Security. Every query touching a user-scoped table (`user_opportunity_state`, `opportunity_scores`, `profiles`) filters by the authenticated user's id in application code — see `apps/web/src/lib/db/*.ts` and `apps/web/src/lib/session.ts`.
-- **Schema types**: SQLite has no native enum or array/jsonb type. Enum-like fields are `String` columns with the allowed values documented in a comment above each field in `apps/web/prisma/schema.prisma`. Arrays/objects use Prisma's `Json` scalar.
-- **Both apps share one DB file**: the Next.js app (via Prisma) and the Python scraper (via the stdlib `sqlite3` module) read and write the same `data/app.db`, with `PRAGMA journal_mode=WAL` and a `busy_timeout` set on both sides so they don't collide.
-- **Prisma stores `DateTime` as epoch milliseconds and `Boolean` as 0/1 on SQLite** — this was verified empirically against real rows the Prisma seed script wrote (not assumed). The Python side matches this exactly; see `apps/scraper/app/utils/dt.py`.
-
-The architecture is still built to swap this out — Postgres/Supabase (per the original spec) or a hosted SQLite-compatible service like Turso/libSQL — by changing `DATABASE_URL` on the Prisma side and the connection string on the Python side. See **Known limitations** below for why you'd want to.
+- **RLS substitute**: SQLite/libSQL has no Row Level Security. Every query touching a user-scoped table (`user_opportunity_state`, `opportunity_scores`, `profiles`) filters by the authenticated user's id in application code — see `apps/web/src/lib/db/*.ts` and `apps/web/src/lib/session.ts`.
+- **Schema types**: no native enum or array/jsonb type. Enum-like fields are `String` columns with the allowed values documented in a comment above each field in `apps/web/prisma/schema.prisma`. Arrays/objects use Prisma's `Json` scalar.
+- **Both apps, and GitHub-hosted Actions runners, share one live database**: the Next.js app connects via Prisma's libSQL driver adapter (`@prisma/adapter-libsql`); the Python scraper connects via `libsql-client`. Originally this was a single local SQLite *file* shared by both processes — that only worked for local dev or a single self-hosted machine. Moving to Turso means scheduled discovery/monitoring can run on standard GitHub-hosted runners and still update the same data the deployed web app reads. See **Known limitations** for a transport quirk this surfaced.
+- **Prisma stores `DateTime` as epoch milliseconds and `Boolean` as 0/1** — this was verified empirically against real rows the Prisma seed script wrote (not assumed). The Python side matches this exactly; see `apps/scraper/app/utils/dt.py`.
 
 ## Architecture
 
 ```
 opportunity-os/
   apps/
-    web/        Next.js 16, TypeScript, Tailwind, shadcn/ui (Base UI), Prisma+SQLite
+    web/        Next.js 16, TypeScript, Tailwind, shadcn/ui (Base UI), Prisma+libSQL
     scraper/    Python 3.12, FastAPI, discovery/monitoring/extraction/ranking pipelines
-  data/
-    app.db      shared SQLite database (gitignored — created by `prisma migrate`)
   .github/workflows/
-    discovery.yml   scheduled discovery runs
-    monitor.yml     scheduled monitoring runs
+    discovery.yml   scheduled discovery runs (GitHub-hosted runner, ubuntu-latest)
+    monitor.yml     scheduled monitoring runs (GitHub-hosted runner, ubuntu-latest)
 ```
+
+Database: a Turso project (libSQL) — see turso.tech. Not part of this repo's filesystem; both apps and the GitHub Actions workflows connect to it over the network via `TURSO_DATABASE_URL`/`TURSO_AUTH_TOKEN`.
 
 ### Discovery vs. monitoring — two separate pipelines
 
@@ -64,12 +62,26 @@ Every opportunity the scraper discovers is inserted with `published = false`. It
 - Node.js 20+
 - Python 3.12+
 - `openssl` (for generating a session secret; any equivalent works)
+- A Turso database (turso.tech, has a free tier) — or the [Turso CLI](https://docs.turso.tech/cli/installation) if you want to create one from the command line
 
-### 1. Clone and configure environment variables
+### 1. Create a Turso database
+
+Via the CLI:
 
 ```bash
-cp .env.example apps/web/.env.local   # then fill in AUTH_SECRET, SCRAPER_API_SECRET
-cp .env.example apps/scraper/.env     # then fill in TAVILY_API_KEY, SERPAPI_API_KEY, OPENAI_API_KEY
+turso auth login   # or: turso auth signup
+turso db create opportunity-os
+turso db show opportunity-os --url          # -> TURSO_DATABASE_URL (libsql://...)
+turso db tokens create opportunity-os       # -> TURSO_AUTH_TOKEN
+```
+
+Or create one from the Turso web dashboard and copy the URL + an auth token from there.
+
+### 2. Configure environment variables
+
+```bash
+cp .env.example apps/web/.env.local   # fill in TURSO_DATABASE_URL, TURSO_AUTH_TOKEN, AUTH_SECRET
+cp .env.example apps/scraper/.env     # fill in the same TURSO_* pair, plus TAVILY_API_KEY, SERPAPI_API_KEY, OPENAI_API_KEY
 ```
 
 Generate a session secret:
@@ -78,22 +90,28 @@ Generate a session secret:
 openssl rand -base64 32
 ```
 
-`apps/web/.env` (committed, contains no secrets) already points `DATABASE_URL` at the shared file:
+`apps/web/.env` (committed, contains no secrets) is intentionally empty of DB config now — `TURSO_DATABASE_URL`/`TURSO_AUTH_TOKEN` are real credentials and belong only in the gitignored `.env.local`/`.env` files.
 
-```
-DATABASE_URL="file:../../../data/app.db"
-```
+### 3. Set up the database schema (Next.js side)
 
-### 2. Set up the database (Next.js side)
+Prisma's CLI validates the `sqlite` datasource's `url` as a `file:` path even when the actual runtime client uses the libSQL driver adapter against Turso — so migrations are authored locally against a throwaway local file, then applied to Turso directly. If you're starting fresh:
 
 ```bash
 cd apps/web
 npm install
-npx prisma migrate dev   # creates data/app.db and applies the schema
-npm run db:seed          # seeds 5 real, source-cited opportunities
+DATABASE_URL="file:./local-dev.db" npx prisma migrate dev   # generates migration SQL against a throwaway local file
+sqlite3 local-dev.db .dump > /tmp/schema.sql
+node -e "
+const fs = require('fs');
+const { createClient } = require('@libsql/client');
+const client = createClient({ url: process.env.TURSO_DATABASE_URL, authToken: process.env.TURSO_AUTH_TOKEN });
+client.executeMultiple(fs.readFileSync('/tmp/schema.sql', 'utf8')).then(() => process.exit(0));
+"
+rm local-dev.db
+npm run db:seed   # seeds 5 real, source-cited opportunities directly into Turso
 ```
 
-### 3. Run the web app
+### 4. Run the web app
 
 ```bash
 npm run dev
@@ -101,7 +119,7 @@ npm run dev
 
 Visit `http://localhost:3000`, create an account (the first account is auto-promoted to admin), complete onboarding, and you'll land on `/opportunities`.
 
-### 4. Set up the scraper service (Python side)
+### 5. Set up the scraper service (Python side)
 
 ```bash
 cd apps/scraper
@@ -111,9 +129,9 @@ pip install -r requirements.txt
 playwright install chromium
 ```
 
-### 5. Trigger discovery/monitoring manually
+### 6. Trigger discovery/monitoring manually
 
-Directly via the CLI (writes to `data/app.db`):
+Directly via the CLI (writes to the Turso database):
 
 ```bash
 cd apps/scraper
@@ -139,9 +157,10 @@ See `.env.example` for the full documented list. Summary:
 
 | Variable | Used by | Required for |
 |---|---|---|
-| `DATABASE_URL` (web) / `DATABASE_PATH` (scraper) | both | everything — points at the shared SQLite file |
+| `TURSO_DATABASE_URL` | both | the database. Use the `libsql://` form — the web app's Prisma adapter needs it; the scraper rewrites it to `https://` internally (see Known limitations) |
+| `TURSO_AUTH_TOKEN` | both | authenticating to Turso |
 | `AUTH_SECRET` | web | signing session JWTs |
-| `SCRAPER_API_SECRET` | scraper only | authenticating calls to the scraper's own FastAPI endpoints (the web app's admin actions talk to Prisma/SQLite directly, not to this service, so it doesn't need this var) |
+| `SCRAPER_API_SECRET` | scraper only | authenticating calls to the scraper's own FastAPI endpoints (the web app's admin actions talk to Prisma/Turso directly, not to this service, so it doesn't need this var) |
 | `TAVILY_API_KEY` | scraper | discovery search (primary provider) |
 | `SERPAPI_API_KEY` | scraper | discovery search (automatic backup if Tavily is unset or fails) |
 | `OPENAI_API_KEY` | scraper | **LLM extraction**, strict schema (highest confidence) |
@@ -166,13 +185,14 @@ python -m pytest
 
 ## Deployment
 
-- **Next.js app**: deployable to Vercel as usual (`vercel deploy`), but see the SQLite caveat below first.
-- **Scraper service**: deployable to Railway/Render/Fly.io as a FastAPI app (`uvicorn app.main:app`), or run purely as scheduled scripts via GitHub Actions / cron — no long-running server is strictly required unless you want the `/scrape/url` ad-hoc endpoint.
-- **Database**: hosted SQLite (see below) or swap `DATABASE_URL`/the Python connection string to Postgres/Supabase per the original spec.
+- **Next.js app**: deployable to Vercel as usual (`vercel deploy`) — works out of the box now, since the database is network-reachable rather than a local file.
+- **Scraper service**: deployable to Railway/Render/Fly.io as a FastAPI app (`uvicorn app.main:app`), or run purely as scheduled scripts via GitHub Actions — no long-running server is strictly required unless you want the `/scrape/url` ad-hoc endpoint. `.github/workflows/discovery.yml` and `monitor.yml` run on standard `ubuntu-latest` GitHub-hosted runners against the same Turso database the deployed web app reads.
+- **Database**: Turso (or swap `TURSO_DATABASE_URL`/the Python connection string to Postgres/Supabase per the original spec — the schema and query patterns don't assume SQLite-specific features beyond what's noted below).
 
 ## Known limitations
 
-- **Local SQLite does not survive a Vercel + GitHub-hosted-runner deployment.** Vercel serverless functions have an ephemeral, effectively read-only filesystem, and GitHub-hosted Actions runners are fresh VMs with no shared disk. A local `data/app.db` file only works when every process that touches it shares the same persistent disk — true for local development, and true for a single self-hosted machine (e.g. a small always-on VPS or home server running both `next start` and the scraper's cron jobs via `systemd`/`cron` or a **self-hosted** GitHub Actions runner on that same machine — this is what `.github/workflows/*.yml` default to `runs-on: self-hosted` for). To deploy the web app to Vercel with GitHub-hosted runners doing discovery/monitoring against the *same* live data, swap the database for a network-reachable SQLite-compatible service (e.g. Turso/libSQL — same SQL, minimal code changes) or migrate to Postgres/Supabase as originally specified.
+- **Python's `libsql-client` sync wrapper hangs indefinitely over the `libsql://` (websocket/hrana) transport — verified empirically, not assumed.** It works correctly and quickly over `https://` (stateless HTTP transport). `apps/scraper/app/config.py` stores `TURSO_DATABASE_URL` in the canonical `libsql://` form (matching what the Node/Prisma side needs) and rewrites the scheme to `https://` before constructing the Python client — see the comment in `config.py` for the full story. If you see the scraper hang with near-zero CPU usage, check that this rewrite is still happening.
+- **Every scraper DB operation is now a network round-trip instead of an instant local file read.** Discovery/monitoring runs are noticeably slower than the old local-SQLite-file version — each `save_candidate`/`create_opportunity`/dedup-lookup call now costs real latency. `list_existing_lightweight()` (used for dedup, re-fetches the *entire* opportunities table) is called once per candidate URL, which is the biggest avoidable cost — worth caching for the duration of a single run if discovery volume grows.
 - **No `OPENAI_API_KEY` was configured in this build.** `LLM_COMPAT_API_KEY` (Novita/DeepSeek) is configured instead and verified working — see "The never invent facts rule" above — so extraction is not running in bare heuristic mode by default here, but it also isn't running with a provider-enforced schema, so confidence is capped the same as heuristic mode. Add a real `OPENAI_API_KEY` to `apps/scraper/.env` for strict-schema extraction — no code changes needed, the extractor factory picks it up automatically and it takes priority over `LLM_COMPAT_API_KEY`.
 - **Fit/difficulty/value scoring is a documented v1 heuristic, not a calibrated model.** The rules are deliberately simple and explainable (see `apps/web/src/lib/fit.ts` and `apps/scraper/app/ranking/score.py`) so they can be inspected and adjusted, not treated as ground truth — this matches the product principle that these are not objective truths.
 - **LLM/heuristic classification can still misfire either way.** With bare heuristic keyword-matching, a live test run surfaced a few listicle/aggregator articles as "opportunities" alongside real ones. With the `LLM_COMPAT_API_KEY` extractor, a live test run correctly rejected 2 of 3 candidates and extracted a real, accurately-described program (Research Science Initiative India) for the third — a real improvement, but still not infallible. This is exactly what the admin review gate at `/admin/review` is for; nothing reaches the student feed unreviewed regardless of which extractor found it.
